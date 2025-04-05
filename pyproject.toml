@@ -21,7 +21,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-addopts = ["--cov=bootstrap", "--cov-report=html"]
+addopts = ["--cov=bootstrap", "--cov-report=html", "--cov-report=term"]
 testpaths = ["tests"]
 
 [dependency-groups]
