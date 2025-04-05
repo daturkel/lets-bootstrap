@@ -7,7 +7,6 @@ from bootstrap.functional import (
     _bca_ci,
     _percentile_ci,
     _reverse_percentile_ci,
-    _t_ci,
     bootstrap_resample,
     jackknife_distribution,
 )
