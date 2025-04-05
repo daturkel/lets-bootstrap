@@ -32,7 +32,7 @@ jobs:
         run: uv sync --group=docs
 
       - name: Build docs
-        run: python -o docs/
+        run: pdoc -o docs/
 
       - name: Upload docs
         uses: actions/upload-pages-artifact@v3
