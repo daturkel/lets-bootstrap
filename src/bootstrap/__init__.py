@@ -1,3 +1,10 @@
+"""
+.. include:: ../../README.md
+   :end-before: Documentation
+
+## Documentation
+"""
+
 from typing import Callable, Generator, Literal, Self
 
 import numpy as np

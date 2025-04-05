@@ -3,7 +3,7 @@
 .PHONY: docs test
 
 docs:
-	uv run pdoc --math --docformat google src/bootstrap -o docs/
+	uv run pdoc --math --docformat google src/bootstrap -o docs/site/
 
 test:
 	uv run pytest

@@ -32,12 +32,12 @@ jobs:
         run: uv sync --group=docs
 
       - name: Build docs
-        run: uv run pdoc --math --docformat google src/bootstrap -o docs/
+        run: uv run pdoc --math --docformat google src/bootstrap -o docs/site/
 
       - name: Upload docs
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/
+          path: docs/site/
 
   # Deploy the artifact to GitHub pages.
   # This is a separate job so that only actions/deploy-pages has the necessary permissions.
