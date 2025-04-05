@@ -1,5 +1,6 @@
 """
 .. include:: ../../README.md
+   :start-line: 3
    :end-before: Documentation
 
 ## Documentation

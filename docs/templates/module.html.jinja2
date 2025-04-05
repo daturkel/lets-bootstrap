@@ -1,0 +1,25 @@
+{% extends "default/module.html.jinja2" %}
+
+{% macro module_name() %}
+    {% if module.modulename.split(".") != ["bootstrap"] %}
+        <h1 class="modulename">
+            {% set parts = module.modulename.split(".") %}
+            {% for part in parts %}
+                {%- set fullname = ".".join(parts[:loop.index]) -%}
+                {%- if fullname in all_modules and fullname != module.modulename -%}
+                    <a href="./{{ "../" * loop.revindex0 }}{{ part }}.html">{{ part }}</a>
+                {%- else -%}
+                    {{ part }}
+                {%- endif -%}
+                {%- if loop.nextitem -%}
+                    <wbr>.
+                {%- endif -%}
+            {% endfor %}
+        </h1>
+    {% else %}
+        <h1 class="modulename">
+            Let's Bootstrap 🥾
+        </h1>
+        <div class="alert note"><p>To skip straight to the API documentation, <a href="#documentation">click here</a> or select a submodule from the navigation bar on the left.</p></div>
+    {% endif %}
+{% endmacro %}
