@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# mac nonsense
+.DS_Store
+
 # C extensions
 *.so
 
@@ -135,6 +138,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.python-version
 
 # Spyder project settings
 .spyderproject
