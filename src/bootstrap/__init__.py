@@ -2,6 +2,7 @@ from typing import Callable, Generator, Literal, Self
 
 import numpy as np
 
+from bootstrap import functional, resample, simulation, types
 from bootstrap.functional import (
     _bc_ci,
     _bca_ci,
@@ -332,4 +333,12 @@ def bootstrap(
     return bs
 
 
-__all__ = ["BootstrapSamples", "BootstrapDistribution", "bootstrap"]
+__all__ = [
+    "BootstrapSamples",
+    "BootstrapDistribution",
+    "bootstrap",
+    "functional",
+    "resample",
+    "simulation",
+    "types",
+]
