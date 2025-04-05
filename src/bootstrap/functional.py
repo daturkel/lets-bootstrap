@@ -185,7 +185,6 @@ def reverse_percentile_ci(
 
 
 def _t_ci(
-    data: np.ndarray,
     theta_star: np.ndarray,
     theta_hat: float,
     se_fn: Callable,
@@ -194,7 +193,6 @@ def _t_ci(
     """Calculate t-distribution bootstrap confidence interval from a bootstrap distribution.
 
     Args:
-        data: Original data array, used to calculate standard error.
         theta_star: Bootstrap distribution of the statistic.
         theta_hat: Value of statistic computed on original sample.
         se_fn: A function to calculate the standard error of the statistic on the sample.
@@ -203,7 +201,7 @@ def _t_ci(
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
     """
-    se_hat = se_fn(data)
+    se_hat = se_fn(theta_star)
     t_star = (theta_star - theta_hat) / se_hat
     lo = float(theta_hat - np.quantile(t_star, 1 - alpha / 2) * se_hat)
     hi = float(theta_hat - np.quantile(t_star, alpha / 2) * se_hat)
@@ -233,7 +231,7 @@ def t_ci(
     """
     theta_hat = statistic(data)
     theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
-    return _t_ci(data, theta_star, theta_hat, se_fn, alpha)
+    return _t_ci(theta_star, theta_hat, se_fn, alpha)
 
 
 def _bc_ci(

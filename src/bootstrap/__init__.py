@@ -7,6 +7,7 @@ from bootstrap.functional import (
     _bca_ci,
     _percentile_ci,
     _reverse_percentile_ci,
+    _t_ci,
     bootstrap_resample,
     jackknife_distribution,
 )
@@ -143,24 +144,7 @@ class BootstrapDistribution:
                 raise ValueError(
                     "The se_fn is set to None. Set the se_fn of this object in order to use the bootstrap t interval."
                 )
-            theta_hat = self.stat_fn(self.sample.data)
-            if self.batch_size is None:
-                t_star = (self.distribution - theta_hat) / np.apply_along_axis(
-                    self.se_fn, 1, self.sample.samples
-                )
-            else:
-                t_star_list = []
-                for sample in self.sample.batch_samples(self.batch_size):
-                    t_star_list = t_star_list + list(
-                        (sample - theta_hat) / self.se_fn(sample)
-                    )
-                t_star = np.array(t_star_list)
-            pct_lo = alpha / 2
-            pct_hi = 1 - pct_lo
-            se_hat = self.se_fn(self.sample.data)
-            lo = theta_hat - se_hat * np.quantile(t_star, pct_hi)
-            hi = theta_hat - se_hat * np.quantile(t_star, pct_lo)
-            return float(lo), float(hi)
+            return _t_ci(self.distribution, self.theta_hat, self.se_fn, alpha)
         elif how == "bc":
             return _bc_ci(
                 self.distribution,
