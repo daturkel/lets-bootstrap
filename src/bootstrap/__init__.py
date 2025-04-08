@@ -6,22 +6,58 @@
 ## Documentation
 """
 
+from __future__ import annotations
+
 from typing import Callable, Generator, Literal, Self
 
 import numpy as np
 
-from bootstrap import functional, resample, simulation, types
-from bootstrap.functional import (
-    _bc_ci,
-    _bca_ci,
-    _percentile_ci,
-    _reverse_percentile_ci,
-    _t_ci,
-    bootstrap_resample,
-    jackknife_distribution,
+from bootstrap import ci, resample, simulation, types
+from bootstrap.ci import (
+    bc_ci_from_bootstrap_distribution,
+    bca_ci_from_bootstrap_distribution,
+    percentile_ci_from_bootstrap_distribution,
+    reverse_percentile_ci_from_bootstrap_distribution,
+    t_ci_from_bootstrap_distribution,
 )
-from bootstrap.resample import _get_rng
+from bootstrap.resample import _get_rng, bootstrap_resample, jackknife_distribution
 from bootstrap.types import RNGSeed
+
+
+def bootstrap(
+    data: np.ndarray | list,
+    n_resamples: int = 10000,
+    seed: RNGSeed = None,
+    lazy: bool = True,
+) -> BootstrapSamples:
+    """Create bootstrap samples from the given data.
+
+    This function creates bootstrap samples by randomly sampling with replacement
+    from the provided data.
+
+    Args:
+        data: The dataset to resample from. Can be a numpy array or a list.
+        n_resamples: Number of bootstrap resamples to generate. Default is 10000.
+        seed: Random number generator seed for reproducibility. Can be an int,
+            numpy.random.Generator, numpy.random.RandomState, or None.
+        lazy: If True, resampling is deferred until the samples are actually
+            needed. If False, resampling is done immediately. Default is True.
+
+    Returns:
+        A `BootstrapSamples` object containing the resamples or the configuration to generate
+        them.
+
+    Examples:
+        >>> import numpy as np
+        >>> from bootstrap import bootstrap
+        >>> data = np.array([1, 2, 3, 4, 5])
+        >>> bs = bootstrap(data, n_resamples=1000, seed=42)
+        >>> bs_samples = bs.samples  # This triggers the resampling
+    """
+    bs = BootstrapSamples(data=np.asarray(data), n_resamples=n_resamples, seed=seed)
+    if not lazy:
+        bs = bs.materialize()
+    return bs
 
 
 class BootstrapSamples:
@@ -194,6 +230,7 @@ class BootstrapDistribution:
 
     @property
     def distribution(self) -> np.ndarray:
+        # TODO: implement equivalent functionality for SE
         """Generate and return the bootstrap distribution.
 
         Computes the statistic on all bootstrap resamples, either all at once or in batches
@@ -221,6 +258,14 @@ class BootstrapDistribution:
             return self.stat_fn(batch, axis=1)
         elif self.how == "loop":
             return np.apply_along_axis(self.stat_fn, 1, batch)
+        else:
+            raise ValueError(f"Got unknown value for `how`: {self.how}.")
+
+    def _compute_se(self, data: np.ndarray) -> np.ndarray:
+        if self.how == "vectorized":
+            return self.stat_fn(data, axis=1)
+        elif self.how == "loop":
+            return np.apply_along_axis(self.stat_fn, 1, data)
         else:
             raise ValueError(f"Got unknown value for `how`: {self.how}.")
 
@@ -264,14 +309,14 @@ class BootstrapDistribution:
                 using the bootstrap t interval.
         """
         if interval == "percentile":
-            return _percentile_ci(
+            return percentile_ci_from_bootstrap_distribution(
                 self.distribution,
                 alpha,
                 expand,
                 len(self.sample.data) if expand else None,
             )
         elif interval == "reverse_percentile":
-            return _reverse_percentile_ci(
+            return reverse_percentile_ci_from_bootstrap_distribution(
                 self.distribution,
                 self.theta_hat,
                 alpha,
@@ -283,9 +328,13 @@ class BootstrapDistribution:
                 raise ValueError(
                     "The se_fn is set to None. Set the se_fn of this object in order to use the bootstrap t interval."
                 )
-            return _t_ci(self.distribution, self.theta_hat, self.se_fn, alpha)
+            se_star = self._compute_se(self.sample.samples)
+            se_hat = self.se_fn(self.sample.data)
+            return t_ci_from_bootstrap_distribution(
+                self.distribution, self.theta_hat, se_star, se_hat, alpha
+            )
         elif interval == "bc":
-            return _bc_ci(
+            return bc_ci_from_bootstrap_distribution(
                 self.distribution,
                 self.theta_hat,
                 alpha,
@@ -293,7 +342,7 @@ class BootstrapDistribution:
                 len(self.sample.data) if expand else None,
             )
         elif interval == "bca":
-            return _bca_ci(
+            return bca_ci_from_bootstrap_distribution(
                 self.distribution,
                 jackknife_distribution(self.sample.data, self.stat_fn),
                 self.theta_hat,
@@ -305,47 +354,11 @@ class BootstrapDistribution:
             raise ValueError(f"Got unknown value for `how`: {self.how}.")
 
 
-def bootstrap(
-    data: np.ndarray | list,
-    n_resamples: int = 10000,
-    seed: RNGSeed = None,
-    lazy: bool = True,
-) -> BootstrapSamples:
-    """Create bootstrap samples from the given data.
-
-    This function creates bootstrap samples by randomly sampling with replacement
-    from the provided data.
-
-    Args:
-        data: The dataset to resample from. Can be a numpy array or a list.
-        n_resamples: Number of bootstrap resamples to generate. Default is 10000.
-        seed: Random number generator seed for reproducibility. Can be an int,
-            numpy.random.Generator, numpy.random.RandomState, or None.
-        lazy: If True, resampling is deferred until the samples are actually
-            needed. If False, resampling is done immediately. Default is True.
-
-    Returns:
-        A `BootstrapSamples` object containing the resamples or the configuration to generate
-        them.
-
-    Examples:
-        >>> import numpy as np
-        >>> from bootstrap import bootstrap
-        >>> data = np.array([1, 2, 3, 4, 5])
-        >>> bs = bootstrap(data, n_resamples=1000, seed=42)
-        >>> bs_samples = bs.samples  # This triggers the resampling
-    """
-    bs = BootstrapSamples(data=np.asarray(data), n_resamples=n_resamples, seed=seed)
-    if not lazy:
-        bs = bs.materialize()
-    return bs
-
-
 __all__ = [
+    "bootstrap",
     "BootstrapSamples",
     "BootstrapDistribution",
-    "bootstrap",
-    "functional",
+    "ci",
     "resample",
     "simulation",
     "types",

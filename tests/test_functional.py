@@ -5,15 +5,14 @@ from typing import Callable
 import numpy as np
 import pytest
 
-from bootstrap.functional import (
+from bootstrap.ci import (
     bc_ci,
     bca_ci,
-    bootstrap_distribution,
-    jackknife_distribution,
     percentile_ci,
     reverse_percentile_ci,
     t_ci,
 )
+from bootstrap.resample import bootstrap_distribution, jackknife_distribution
 
 
 @pytest.fixture

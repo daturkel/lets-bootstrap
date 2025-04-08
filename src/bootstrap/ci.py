@@ -9,59 +9,23 @@ from typing import Callable
 import numpy as np
 from scipy import stats
 
-from bootstrap.resample import bootstrap_resample, jackknife_resample
+from bootstrap.resample import (
+    bootstrap_distribution,
+    bootstrap_resample,
+    jackknife_distribution,
+)
 from bootstrap.types import RNGSeed
 
 
-def bootstrap_distribution(
-    data: np.ndarray,
-    n_resamples: int,
-    statistic: Callable,
-    seed: RNGSeed = None,
-) -> np.ndarray:
-    """Generate bootstrap distribution for a given statistic.
-
-    Args:
-        data: Original data array to resample from.
-        n_resamples: Number of bootstrap resamples to generate.
-        statistic: Function that computes the statistic of interest on the data.
-        seed: Random seed for reproducibility. Defaults to None for no seed.
-
-    Returns:
-        Array of statistic values calculated on each bootstrap resample.
-    """
-    resamples = bootstrap_resample(data, n_resamples, seed)
-    return np.apply_along_axis(statistic, axis=1, arr=resamples)
-
-
-def jackknife_distribution(data: np.ndarray, statistic: Callable) -> np.ndarray:
-    """Generate jackknife distribution for a given statistic.
-
-    Args:
-        data: Original data array to resample from.
-        statistic: Function that computes the statistic of interest on the data.
-
-    Returns:
-        Array of statistic values calculated on each jackknife resample.
-    """
-    resamples = jackknife_resample(data)
-    return np.apply_along_axis(statistic, axis=1, arr=resamples)
-
-
-def _expand_alpha(alpha: float, n: int) -> float:
-    expansion = np.sqrt(n / (n - 1))
-    t_alpha = stats.t(n - 1).ppf(alpha)
-    alpha_prime = float(stats.norm.cdf(expansion * t_alpha))
-    return alpha_prime
-
-
-def _percentile_ci(
+def percentile_ci_from_bootstrap_distribution(
     theta_star: np.ndarray,
     alpha: float = 0.05,
     expand: bool = False,
     n_samples: int | None = None,
 ) -> tuple[float, float]:
     """Calculate percentile confidence interval from a bootstrap distribution.
+
+    For algorithmic details, see `percentile_ci`.
 
     Args:
         theta_star: Bootstrap distribution of the statistic.
@@ -76,13 +40,16 @@ def _percentile_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1981. Nonparametric standard errors and confidence intervals. Can J Statistics 9, 2 (January 1981), 139–158. https://doi.org/10.2307/3314608
     """
     alpha_lo = alpha / 2
     if expand:
         if n_samples is None:
             raise ValueError("n_samples must be provided when expand=True")
         else:
-            alpha_lo = _expand_alpha(alpha_lo, n_samples)
+            alpha_lo = expand_alpha(alpha_lo, n_samples)
 
     lo = float(np.quantile(theta_star, alpha_lo))
     hi = float(np.quantile(theta_star, 1 - alpha_lo))
@@ -97,7 +64,9 @@ def percentile_ci(
     seed: RNGSeed = None,
     expand: bool = False,
 ) -> tuple[float, float]:
-    """Calculate percentile bootstrap confidence interval.
+    """Calculate percentile bootstrap confidence interval from sample data.
+
+    $$(\\hat\\theta^ * _{\\alpha/2},\\hat\\theta^ * _{1-\\alpha/2})$$
 
     Args:
         data: Original data array to resample from.
@@ -110,12 +79,17 @@ def percentile_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1981. Nonparametric standard errors and confidence intervals. Can J Statistics 9, 2 (January 1981), 139–158. https://doi.org/10.2307/3314608
     """
     theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
-    return _percentile_ci(theta_star, alpha, expand, len(data) if expand else None)
+    return percentile_ci_from_bootstrap_distribution(
+        theta_star, alpha, expand, len(data) if expand else None
+    )
 
 
-def _reverse_percentile_ci(
+def reverse_percentile_ci_from_bootstrap_distribution(
     theta_star: np.ndarray,
     theta_hat: float,
     alpha: float = 0.05,
@@ -123,6 +97,8 @@ def _reverse_percentile_ci(
     n_samples: int | None = None,
 ) -> tuple[float, float]:
     """Calculate reverse percentile confidence interval from a bootstrap distribution.
+
+    For algorithmic details, see `reverse_percentile_ci`.
 
     Args:
         theta_star: Bootstrap distribution of the statistic.
@@ -138,13 +114,16 @@ def _reverse_percentile_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Anthony Davison and David Hinkley. 1997. Bootstrap Methods and Their Application. Journal of the American Statistical Association 94, (January 1997). DOI:https://doi.org/10.2307/1271471
     """
     alpha_lo = alpha / 2
     if expand:
         if n_samples is None:
             raise ValueError("n_samples must be provided when expand=True")
         else:
-            alpha_lo = _expand_alpha(alpha_lo, n_samples)
+            alpha_lo = expand_alpha(alpha_lo, n_samples)
 
     lo = float(2 * theta_hat - np.quantile(theta_star, 1 - alpha_lo))
     hi = float(2 * theta_hat - np.quantile(theta_star, alpha_lo))
@@ -159,11 +138,9 @@ def reverse_percentile_ci(
     seed: RNGSeed = None,
     expand: bool = False,
 ) -> tuple[float, float]:
-    """Calculate reverse percentile (basic) bootstrap confidence interval.
+    """Calculate reverse percentile (basic) bootstrap confidence interval  from sample data.
 
-    This method reflects the bootstrap distribution around the original sample statistic.
-    It can perform better than the standard percentile method when the bootstrap
-    distribution is skewed.
+    $$(2\\hat\\theta - \\hat\\theta^ * _{1 - \\alpha/2}, 2\\hat\\theta-\\hat\\theta^ * _ {\\alpha})$$
 
     Args:
         data: Original data array to resample from.
@@ -176,33 +153,39 @@ def reverse_percentile_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Anthony Davison and David Hinkley. 1997. Bootstrap Methods and Their Application. Journal of the American Statistical Association 94, (January 1997). DOI:https://doi.org/10.2307/1271471
     """
     theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
     theta_hat = statistic(data)
-    return _reverse_percentile_ci(
+    return reverse_percentile_ci_from_bootstrap_distribution(
         theta_star, theta_hat, alpha, expand, len(data) if expand else None
     )
 
 
-def _t_ci(
+def t_ci_from_bootstrap_distribution(
     theta_star: np.ndarray,
     theta_hat: float,
-    se_fn: Callable,
+    se_star: np.ndarray,
+    se_hat: float,
     alpha: float = 0.05,
 ) -> tuple[float, float]:
     """Calculate t-distribution bootstrap confidence interval from a bootstrap distribution.
 
+    For algorithmic details, see `t_ci`.
+
     Args:
         theta_star: Bootstrap distribution of the statistic.
         theta_hat: Value of statistic computed on original sample.
-        se_fn: A function to calculate the standard error of the statistic on the sample.
+        se_star: Bootstrap distribution of the standard error.
+        se_hat: Standard error of the statistic computed on original sample.
         alpha: Significance level. Defaults to 0.05 for a 95% confidence interval.
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
     """
-    se_hat = se_fn(theta_star)
-    t_star = (theta_star - theta_hat) / se_hat
+    t_star = (theta_star - theta_hat) / se_star
     lo = float(theta_hat - np.quantile(t_star, 1 - alpha / 2) * se_hat)
     hi = float(theta_hat - np.quantile(t_star, alpha / 2) * se_hat)
     return lo, hi
@@ -216,7 +199,14 @@ def t_ci(
     alpha: float = 0.05,
     seed: RNGSeed = None,
 ) -> tuple[float, float]:
-    """Calculate t-distribution bootstrap confidence interval.
+    """Calculate t-distribution bootstrap confidence interval from sample data.
+
+    $$(\\hat\\theta-t^ * _{1-\\alpha/2}\\widehat{se},\\hat\\theta-t^ * _{\\alpha/2}\\widehat{se})$$
+
+    where:
+    - $t^ * _{q}$ is the $q$th percentile of the bootstrap distribution of $(\\hat\\theta^ * - \\hat\\theta)/\\widehat{se}^ *$
+    - $\\widehat{se}^ *$ is the standard error of each bootstrap resample, calculated with the user-provided `se_fn`
+    - $\\widehat{se}$ is the standard error of the original sample, calculated with the user-provided `se_fn`
 
     Args:
         data: Array of data to compute the confidence interval for.
@@ -229,12 +219,17 @@ def t_ci(
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
     """
+    resamples = bootstrap_resample(data, n_resamples, seed)
     theta_hat = statistic(data)
-    theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
-    return _t_ci(theta_star, theta_hat, se_fn, alpha)
+    theta_star = np.apply_along_axis(statistic, 1, resamples)
+    se_hat = se_fn(data)
+    se_star = np.apply_along_axis(se_fn, 1, resamples)
+    return t_ci_from_bootstrap_distribution(
+        theta_star, theta_hat, se_star, se_hat, alpha
+    )
 
 
-def _bc_ci(
+def bc_ci_from_bootstrap_distribution(
     theta_star: np.ndarray,
     theta_hat: float,
     alpha: float = 0.05,
@@ -242,6 +237,8 @@ def _bc_ci(
     n_samples: int | None = None,
 ):
     """Calculate bias-corrected bootstrap confidence interval from a bootstrap distribution.
+
+    For algorithmic details, see `bc_ci`.
 
     Args:
         theta_star: Bootstrap distribution of the statistic.
@@ -252,6 +249,9 @@ def _bc_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1981. Nonparametric standard errors and confidence intervals. Can J Statistics 9, 2 (January 1981), 139–158. https://doi.org/10.2307/3314608
     """
     p0 = (theta_star <= theta_hat).mean()
     z0 = stats.norm.ppf(p0)
@@ -260,7 +260,7 @@ def _bc_ci(
         if n_samples is None:
             raise ValueError("n_samples must be provided when expand=True")
         else:
-            alpha_lo = _expand_alpha(alpha_lo, n_samples)
+            alpha_lo = expand_alpha(alpha_lo, n_samples)
     alpha_lo_prime = stats.norm.cdf(2 * z0 + stats.norm.ppf(alpha_lo))
     alpha_hi_prime = stats.norm.cdf(2 * z0 + stats.norm.ppf(1 - alpha_lo))
     lo = float(np.quantile(theta_star, alpha_lo_prime))
@@ -276,7 +276,13 @@ def bc_ci(
     seed: RNGSeed = None,
     expand: bool = False,
 ):
-    """Calculate bias-corrected bootstrap confidence interval.
+    """Calculate bias-corrected bootstrap confidence interval from sample data.
+
+    $$(\\hat\\theta^ * _{(\\alpha/2)_{\\text{BC}}}, \\hat\\theta^ * _{(1-\\alpha/2)_{\\text{BC}}})$$
+
+    where
+    - $q_{\\text{BC}} = \\Phi(2z_0 + \\Phi^{-1}(q))$
+    - $z_0 = \\Phi^{-1}(P(\\hat\\theta ^* \\leq \\hat\\theta))$, where $P(\\hat\\theta ^* \\leq \\hat\\theta)$ denotes the proportion of the bootstrap distribution less than or equal to the original estimate
 
     Args:
         data: Array of data to compute the confidence interval for.
@@ -289,13 +295,19 @@ def bc_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1981. Nonparametric standard errors and confidence intervals. Can J Statistics 9, 2 (January 1981), 139–158. https://doi.org/10.2307/3314608
+
     """
     theta_hat = statistic(data)
     theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
-    return _bc_ci(theta_star, theta_hat, alpha, expand, len(data) if expand else None)
+    return bc_ci_from_bootstrap_distribution(
+        theta_star, theta_hat, alpha, expand, len(data) if expand else None
+    )
 
 
-def _bca_ci(
+def bca_ci_from_bootstrap_distribution(
     theta_star: np.ndarray,
     theta_jack: np.ndarray,
     theta_hat: float,
@@ -305,9 +317,11 @@ def _bca_ci(
 ):
     """Calculate BCa bootstrap confidence interval from a bootstrap distribution.
 
+    For algorithmic details, see `bca_ci`.
+
     Args:
         theta_star: Bootstrap distribution of the statistic.
-        theta_star: Jackknife distribution of the statistic.
+        theta_jack: Jackknife distribution of the statistic.
         theta_hat: Value of statistic computed on original sample.
         alpha: Significance level. Defaults to 0.05 for a 95% confidence interval.
         expand: If True, use the expanded BCa interval to adjust for narrowness bias. Defaults
@@ -317,6 +331,9 @@ def _bca_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1987. Better Bootstrap Confidence Intervals. Journal of the American Statistical Association 82, 397 (1987), 171–185. https://doi.org/10.2307/2289144
     """
     p0 = (theta_star <= theta_hat).mean()
     z0 = stats.norm.ppf(p0)
@@ -325,7 +342,7 @@ def _bca_ci(
         if n_samples is None:
             raise ValueError("n_samples must be provided when expand=True")
         else:
-            alpha_lo = _expand_alpha(alpha_lo, n_samples)
+            alpha_lo = expand_alpha(alpha_lo, n_samples)
     theta_jack_bar = np.mean(theta_jack)
     empirical_influence = theta_jack - theta_jack_bar
     a_num = (empirical_influence**3).sum()
@@ -352,7 +369,14 @@ def bca_ci(
     seed: RNGSeed = None,
     expand: bool = False,
 ):
-    """Calculate BCa bootstrap confidence interval.
+    """Calculate BCa bootstrap confidence interval from sample data.
+
+    $$(\\hat\\theta^ * _{(\\alpha/2)_{\\text{BCa}}}, \\hat\\theta^ * _{(1-\\alpha/2)_{\\text{BCa}}})$$
+
+    where
+    - $q_{\\text{BCa}} = \\Phi(z_0+(z_0+\\Phi^{-1}(q))/(1-a(z_0+\\Phi^{-1}(q))))$
+    - $z_0 = \\Phi^{-1}(P(\\hat\\theta ^* \\leq \\hat\\theta))$, where $P(\\hat\\theta ^* \\leq \\hat\\theta)$ denotes the proportion of the bootstrap distribution less than or equal to the original estimate
+    - $a=(\\hat\\theta^ * - \\hat\\theta)^3 / (6\\sum(\\hat\\theta ^ * - \\hat\\theta )^2)) ^ {3 / 2}$
 
     Args:
         data: Array of data to compute the confidence interval for.
@@ -365,10 +389,35 @@ def bca_ci(
 
     Returns:
         Tuple containing lower and upper bounds of the confidence interval.
+
+    Reference:
+        Bradley Efron. 1987. Better Bootstrap Confidence Intervals. Journal of the American Statistical Association 82, 397 (1987), 171–185. https://doi.org/10.2307/2289144
     """
     theta_hat = statistic(data)
     theta_star = bootstrap_distribution(data, n_resamples, statistic, seed=seed)
     theta_jack = jackknife_distribution(data, statistic)
-    return _bca_ci(
+    return bca_ci_from_bootstrap_distribution(
         theta_star, theta_jack, theta_hat, alpha, expand, len(data) if expand else None
     )
+
+
+def expand_alpha(alpha: float, n: int) -> float:
+    """Calculate expanded percentiles for expanded confidence intervals.
+
+    $$\\alpha' = \\Phi\\left(\\sqrt{n/(n-1)}t_{\\alpha,n}\\right)$$
+
+    Args:
+        alpha: The nominal percentile to be adjusted.
+        n: The number of observations in the sample.
+
+    Returns:
+        An adjusted alpha to counter narrowness bias of intervals with small n.
+
+    Reference:
+        Tim Hesterberg. 1999. Bootstrap Tilting Confidence Intervals. Mathsoft, Inc. Retrieved April 7, 2025 from [https://www.researchgate.net/publication/2269406_Bootstrap_Tilting_Confidence_Intervals](https://www.researchgate.net/publication/2269406_Bootstrap_Tilting_Confidence_Intervals)
+
+    """
+    expansion = np.sqrt(n / (n - 1))
+    t_alpha = stats.t(n - 1).ppf(alpha)
+    alpha_prime = float(stats.norm.cdf(expansion * t_alpha))
+    return alpha_prime
