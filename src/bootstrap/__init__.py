@@ -150,6 +150,8 @@ class BootstrapSamples:
         lazy: bool = True,
         batch_size: int | None = None,
         how: Literal["vectorized", "loop"] = "vectorized",
+        se_fn: Callable | None = None,
+        se_how: Literal["vectorized", "loop"] = "vectorized",
     ):
         """Apply a statistical function to the bootstrap resamples.
 
@@ -167,6 +169,9 @@ class BootstrapSamples:
             how: Method for applying the statistical function. Options are "vectorized",
                 which calls `stat_fn(batch, axis=1)`, and "loop", which calls `np.apply_along_axis(stat_fn, 1, batch)`.
                 Default is "vectorized".
+            se_fn: Optional function to compute standard error, required for bootstrap t confidence
+                intervals.
+            se_how: Same as `how`, but for `se_fn`.
 
         Returns:
             A `BootstrapDistribution` object containing the results of applying the statistical
@@ -177,6 +182,8 @@ class BootstrapSamples:
             sample=self,
             batch_size=batch_size,
             how=how,
+            se_fn=se_fn,
+            se_how=se_how,
         )
         if not lazy:
             bd = bd.materialize()
@@ -207,6 +214,7 @@ class BootstrapDistribution:
         batch_size: int | None = None,
         how: Literal["vectorized", "loop"] = "vectorized",
         se_fn: Callable | None = None,
+        se_how: Literal["vectorized", "loop"] = "vectorized",
     ):
         """Initialize a `BootstrapDistribution` object.
 
@@ -214,23 +222,26 @@ class BootstrapDistribution:
             stat_fn: The statistical function to apply to each bootstrap resample.
             sample: The `BootstrapSamples` object containing the resamples.
             batch_size: Number of resamples to process at once. Default is None (all at once).
-            how: Method for applying the stat_fn. Options are "vectorized" (calls
+            how: Method for applying the `stat_fn`. Options are "vectorized" (calls
                 stat_fn(batch, axis=1)) or "loop" (calls np.apply_along_axis(stat_fn, 1, batch)).
                 Default is "vectorized".
             se_fn: Function to compute standard error, required for t-type confidence
                 intervals. Default is None.
+            se_how: Same as `how`, but for `se_fn`.
         """
         self.stat_fn = stat_fn
         self.sample = sample
         self.theta_hat = self.stat_fn(self.sample.data)
         self.batch_size = batch_size
-        self.how = how
+        self.how: Literal["vectorized", "loop"] = how
         self.se_fn = se_fn
         self._distribution: np.ndarray | None = None
+        self._se: np.ndarray | None = None
+        self._se_hat: float | None = None
+        self.se_how: Literal["vectorized", "loop"] = se_how
 
     @property
     def distribution(self) -> np.ndarray:
-        # TODO: implement equivalent functionality for SE
         """Generate and return the bootstrap distribution.
 
         Computes the statistic on all bootstrap resamples, either all at once or in batches
@@ -244,30 +255,54 @@ class BootstrapDistribution:
         """
         if self._distribution is None:
             if self.batch_size is None:
-                self._distribution = self._compute(self.sample.samples)
+                self._distribution = self._compute(
+                    self.stat_fn, self.sample.samples, self.how
+                )
             else:
                 values_list = []
                 for batch in self.sample.batch_samples(self.batch_size):
-                    values_list.append(self._compute(batch))
+                    values_list.append(self._compute(self.stat_fn, batch, self.how))
                 self._distribution = np.concat(values_list)
 
         return self._distribution
 
-    def _compute(self, batch: np.ndarray) -> np.ndarray:
-        if self.how == "vectorized":
-            return self.stat_fn(batch, axis=1)
-        elif self.how == "loop":
-            return np.apply_along_axis(self.stat_fn, 1, batch)
+    def _compute(
+        self, fn: Callable, batch: np.ndarray, how: Literal["vectorized", "loop"]
+    ) -> np.ndarray:
+        if how == "vectorized":
+            return fn(batch, axis=1)
+        elif how == "loop":
+            return np.apply_along_axis(fn, 1, batch)
         else:
             raise ValueError(f"Got unknown value for `how`: {self.how}.")
 
-    def _compute_se(self, data: np.ndarray) -> np.ndarray:
-        if self.how == "vectorized":
-            return self.stat_fn(data, axis=1)
-        elif self.how == "loop":
-            return np.apply_along_axis(self.stat_fn, 1, data)
-        else:
-            raise ValueError(f"Got unknown value for `how`: {self.how}.")
+    @property
+    def se(self) -> np.ndarray:
+        if self.se_fn is None:
+            raise ValueError(
+                "The se_fn is set to None. Set the se_fn of this object in order to calculate stndard errors."
+            )
+        if self._se is None:
+            if self.batch_size is None:
+                self._se = self._compute(self.se_fn, self.sample.samples, self.se_how)
+            else:
+                values_list = []
+                for batch in self.sample.batch_samples(self.batch_size):
+                    values_list.append(self._compute(self.se_fn, batch, self.se_how))
+                self._se = np.concat(values_list)
+
+        return self._se
+
+    @property
+    def se_hat(self) -> float:
+        if self.se_fn is None:
+            raise ValueError(
+                "The se_fn is set to None. Set the se_fn of this object in order to calculate stndard errors."
+            )
+        if self._se_hat is None:
+            self._se_hat = self.se_fn(self.sample.data)
+
+        return self._se_hat  # type: ignore
 
     def materialize(self) -> Self:
         """Generate the bootstrap distribution immediately.
@@ -328,10 +363,9 @@ class BootstrapDistribution:
                 raise ValueError(
                     "The se_fn is set to None. Set the se_fn of this object in order to use the bootstrap t interval."
                 )
-            se_star = self._compute_se(self.sample.samples)
             se_hat = self.se_fn(self.sample.data)
             return t_ci_from_bootstrap_distribution(
-                self.distribution, self.theta_hat, se_star, se_hat, alpha
+                self.distribution, self.theta_hat, self.se, se_hat, alpha
             )
         elif interval == "bc":
             return bc_ci_from_bootstrap_distribution(
